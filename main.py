@@ -146,41 +146,34 @@ def index():
 import requests  # add at the top if not already
 
 @app.route('/register', methods=['GET', 'POST'])
+@csrf.exempt
 def register():
     if request.method == 'POST':
         name = request.form['name']
         email = request.form['email']
-        pwd = request.form['password']
-        pw_hash = generate_password_hash(pwd)
-
-        # 🧩 Firebase Auth: also register the user via REST API
-        firebase_api_key = os.environ['FIREBASE_API_KEY']  # ✅ Set this in your env
-        firebase_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={firebase_api_key}"
-        firebase_data = {
-            "email": email,
-            "password": pwd,
-            "returnSecureToken": True
-        }
+        password = request.form['password']
 
         try:
-            resp = requests.post(firebase_url, json=firebase_data)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            return f"Firebase Auth registration failed: {e}"
+            # Create Firebase Auth user
+            user_record = auth.create_user(email=email, password=password, display_name=name)
 
-        # ✅ Store user in Firestore (no change to your structure)
-        db.collection('users').document(email).set({
-            'name': name,
-            'email': email,
-            'password_hash': pw_hash,
-            'created_at': SERVER_TIMESTAMP,
-            'approved': 1,
-            'active': 1,
-            'is_admin': 0
-        })
+            # Save metadata to Firestore
+            firestore_client.collection('users').document(email).set({
+                'name': name,
+                'email': email,
+                'is_admin': 0,
+                'approved': 1,
+                'active': 1,
+                'created_at': firestore.SERVER_TIMESTAMP
+            })
 
-        session['user_id'] = email
-        return redirect('/dashboard')
+            flash('Registration successful. You can now log in.', 'success')
+            return redirect('/login')
+
+        except Exception as e:
+            print("❌ Firebase Auth Error:", e)
+            flash('Registration failed. ' + str(e), 'danger')
+            return redirect('/register')
 
     return render_template('register.html')
 
@@ -297,45 +290,34 @@ def view_patients():
 
 
 @app.route('/register_institute', methods=['GET', 'POST'])
+@csrf.exempt
 def register_institute():
     if request.method == 'POST':
         name = request.form['name']
         email = request.form['email']
-        phone = request.form['phone']
-        raw_password = request.form['password']
-        pwd = generate_password_hash(raw_password)
-        inst = request.form['institute']
-
-        # 🔐 Register to Firebase Auth
-        firebase_api_key = os.environ['FIREBASE_API_KEY']
-        firebase_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={firebase_api_key}"
-        firebase_data = {
-            "email": email,
-            "password": raw_password,
-            "returnSecureToken": True
-        }
+        password = request.form['password']
 
         try:
-            resp = requests.post(firebase_url, json=firebase_data)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            return f"Firebase registration failed: {e}"
+            # Create Firebase Auth user
+            user_record = auth.create_user(email=email, password=password, display_name=name)
 
-        # ✅ Save to Firestore
-        db.collection('users').document(email).set({
-            'name': name,
-            'email': email,
-            'phone': phone,
-            'password_hash': pwd,
-            'institute': inst,
-            'is_admin': 1,
-            'approved': 1,
-            'active': 1,
-            'created_at': SERVER_TIMESTAMP
-        })
+            # Save metadata to Firestore
+            firestore_client.collection('users').document(email).set({
+                'name': name,
+                'email': email,
+                'is_admin': 1,
+                'approved': 1,
+                'active': 1,
+                'created_at': firestore.SERVER_TIMESTAMP,
+            })
 
-        log_action(None, 'Register', f"{name} registered as Institute Admin")
-        return redirect('/login_institute')
+            flash('Institute registered successfully. You can now log in.', 'success')
+            return redirect('/login_institute')
+
+        except Exception as e:
+            print("❌ Firebase Auth Error:", e)
+            flash('Registration failed. ' + str(e), 'danger')
+            return redirect('/register_institute')
 
     return render_template('register_institute.html')
 
@@ -372,60 +354,42 @@ def login_institute():
     return render_template('login_institute.html')
 
 @app.route('/register_with_institute', methods=['GET', 'POST'])
+@csrf.exempt
 def register_with_institute():
+    # Load list of institutes for dropdown
+    institutes = firestore_client.collection('users').where('is_admin', '==', 1).stream()
+    institute_emails = [doc.id for doc in institutes]
+
     if request.method == 'POST':
         name = request.form['name']
         email = request.form['email']
-        phone = request.form['phone']
-        raw_password = request.form['password']
-        password_hash = generate_password_hash(raw_password)
-        institute = request.form['institute']
-        is_admin = 0
-        approved = 0
-        active = 1
-
-        # 🛑 Check duplicates
-        existing_email = db.collection('users').where('email', '==', email).stream()
-        existing_phone = db.collection('users').where('phone', '==', phone).stream()
-        if any(existing_email) or any(existing_phone):
-            return "Email or phone number already registered."
-
-        # 🔐 Firebase Auth registration
-        firebase_api_key = os.environ['FIREBASE_API_KEY']
-        firebase_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={firebase_api_key}"
-        firebase_data = {
-            "email": email,
-            "password": raw_password,
-            "returnSecureToken": True
-        }
+        password = request.form['password']
+        selected_institute = request.form['institute_email']
 
         try:
-            resp = requests.post(firebase_url, json=firebase_data)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            return f"Firebase registration failed: {e}"
+            # Create Firebase Auth user
+            user_record = auth.create_user(email=email, password=password, display_name=name)
 
-        # ✅ Save to Firestore
-        db.collection('users').document(email).set({
-            'name': name,
-            'email': email,
-            'phone': phone,
-            'password_hash': password_hash,
-            'institute': institute,
-            'is_admin': is_admin,
-            'approved': approved,
-            'active': active,
-            'created_at': SERVER_TIMESTAMP
-        })
+            # Save metadata to Firestore
+            firestore_client.collection('users').document(email).set({
+                'name': name,
+                'email': email,
+                'is_admin': 0,
+                'approved': 0,  # Needs approval from admin
+                'active': 1,
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'institute_email': selected_institute
+            })
 
-        log_action(None, 'Register', f"{name} registered as Institute Physio (pending approval)")
-        return "Registration successful! Awaiting admin approval."
+            flash('Registration submitted. Awaiting approval from your institute.', 'info')
+            return redirect('/login_institute')
 
-    # GET: list of available institutes
-    admins = db.collection('users').where('is_admin', '==', 1).stream()
-    institutes = list({admin.to_dict().get('institute') for admin in admins})
+        except Exception as e:
+            print("❌ Firebase Auth Error:", e)
+            flash('Registration failed. ' + str(e), 'danger')
+            return redirect('/register_with_institute')
 
-    return render_template('register_with_institute.html', institutes=institutes)
+    return render_template('register_with_institute.html', institute_emails=institute_emails)
 
     
 

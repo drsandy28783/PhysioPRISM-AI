@@ -11,7 +11,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import logging
 from google.api_core.exceptions import GoogleAPIError
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, auth
 from firebase_admin.firestore import SERVER_TIMESTAMP
 from google.cloud.firestore_v1.base_query import FieldFilter
 import openai

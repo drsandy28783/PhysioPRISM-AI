@@ -158,7 +158,7 @@ def register():
             user_record = auth.create_user(email=email, password=password, display_name=name)
 
             # Save metadata to Firestore
-            firestore_client.collection('users').document(email).set({
+            db.collection('users').document(email).set({
                 'name': name,
                 'email': email,
                 'is_admin': 0,
@@ -302,7 +302,7 @@ def register_institute():
             user_record = auth.create_user(email=email, password=password, display_name=name)
 
             # Save metadata to Firestore
-            firestore_client.collection('users').document(email).set({
+            db.collection('users').document(email).set({
                 'name': name,
                 'email': email,
                 'is_admin': 1,
@@ -357,7 +357,7 @@ def login_institute():
 @csrf.exempt
 def register_with_institute():
     # Load list of institutes for dropdown
-    institutes = firestore_client.collection('users').where('is_admin', '==', 1).stream()
+    institutes = db.collection('users').where('is_admin', '==', 1).stream()
     institute_emails = [doc.id for doc in institutes]
 
     if request.method == 'POST':
@@ -371,7 +371,7 @@ def register_with_institute():
             user_record = auth.create_user(email=email, password=password, display_name=name)
 
             # Save metadata to Firestore
-            firestore_client.collection('users').document(email).set({
+            db.collection('users').document(email).set({
                 'name': name,
                 'email': email,
                 'is_admin': 0,

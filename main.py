@@ -1,4 +1,5 @@
 import os
+import requests
 import io
 import json
 from flask import (Flask, render_template, request, redirect,session, url_for, flash,jsonify)
@@ -7,11 +8,11 @@ from flask_login import login_required
 from flask_wtf.csrf import CSRFProtect, generate_csrf, CSRFError
 from xhtml2pdf import pisa
 from functools import wraps
-from werkzeug.security import generate_password_hash, check_password_hash
 import logging
 from google.api_core.exceptions import GoogleAPIError
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
+FIREBASE_WEB_API_KEY = os.environ.get('FIREBASE_WEB_API_KEY')
 from firebase_admin.firestore import SERVER_TIMESTAMP
 from google.cloud.firestore_v1.base_query import FieldFilter
 import openai
@@ -143,10 +144,9 @@ def login_required(approved_only=True):
 def index():
     return render_template('index.html')
 
-import requests  # add at the top if not already
+
 
 @app.route('/register', methods=['GET', 'POST'])
-@csrf.exempt
 def register():
     if request.method == 'POST':
         name = request.form['name']
@@ -154,10 +154,10 @@ def register():
         password = request.form['password']
 
         try:
-            # Create Firebase Auth user
+            # 1. Create user in Firebase Auth
             user_record = auth.create_user(email=email, password=password, display_name=name)
 
-            # Save metadata to Firestore
+            # 2. Store metadata in Firestore
             db.collection('users').document(email).set({
                 'name': name,
                 'email': email,
@@ -171,7 +171,7 @@ def register():
             return redirect('/login')
 
         except Exception as e:
-            print("❌ Firebase Auth Error:", e)
+            print("Registration error:", e)
             flash('Registration failed. ' + str(e), 'danger')
             return redirect('/register')
 
@@ -179,32 +179,51 @@ def register():
 
 
 
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         email = request.form['email']
-        pwd = request.form['password']
-        doc = db.collection('users').document(
-            email).get()  # type: ignore[attr-defined]
-        if not doc.exists:
-            return "Invalid login credentials."
-        user = doc.to_dict()
-        if check_password_hash(user.get('password_hash', ''), pwd):
-            if user.get('approved', 0) == 1 and user.get('active', 1) == 1:
-                session.update({
-                    'user_id': email,
-                    'user_name': user.get('name'),
-                    'institute': user.get('institute'),
-                    'is_admin': user.get('is_admin', 0),
-                    'approved': user.get('approved', 0)
-                })
-                log_action(email, 'Login', f"{user.get('name')} logged in.")
+        password = request.form['password']
+
+        try:
+            # 1. Authenticate with Firebase Auth via REST API
+            payload = {
+                'email': email,
+                'password': password,
+                'returnSecureToken': True
+            }
+            r = requests.post(
+                f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_WEB_API_KEY}',
+                json=payload
+            )
+            result = r.json()
+
+            if 'error' in result:
+                flash('Invalid credentials', 'danger')
+                return redirect('/login')
+
+            # 2. Fetch user data from Firestore
+            user_doc = db.collection('users').document(email).get()
+            if not user_doc.exists:
+                flash('User not found in Firestore.', 'danger')
+                return redirect('/login')
+
+            user_data = user_doc.to_dict()
+            if user_data.get('approved') == 1 and user_data.get('active') == 1:
+                session['user_email'] = email
+                session['user_name'] = user_data['name']
+                session['role'] = 'individual'
                 return redirect('/dashboard')
-            elif user.get('active', 1) == 0:
-                return "Your account has been deactivated. Contact your admin."
             else:
-                return "Your registration is pending admin approval."
-        return "Invalid login credentials."
+                flash('Your account is not approved or is inactive.', 'danger')
+                return redirect('/login')
+
+        except Exception as e:
+            print("Login error:", e)
+            flash("Login failed due to a system error.", "danger")
+            return redirect('/login')
+
     return render_template('login.html')
 
 
@@ -290,32 +309,33 @@ def view_patients():
 
 
 @app.route('/register_institute', methods=['GET', 'POST'])
-@csrf.exempt
 def register_institute():
     if request.method == 'POST':
         name = request.form['name']
         email = request.form['email']
         password = request.form['password']
+        institute_name = request.form['institute_name']
 
         try:
             # Create Firebase Auth user
-            user_record = auth.create_user(email=email, password=password, display_name=name)
+            auth.create_user(email=email, password=password, display_name=name)
 
-            # Save metadata to Firestore
+            # Save to Firestore
             db.collection('users').document(email).set({
                 'name': name,
                 'email': email,
+                'institute_name': institute_name,
                 'is_admin': 1,
                 'approved': 1,
                 'active': 1,
-                'created_at': firestore.SERVER_TIMESTAMP,
+                'created_at': firestore.SERVER_TIMESTAMP
             })
 
-            flash('Institute registered successfully. You can now log in.', 'success')
+            flash("Institute admin registered successfully. You can log in.", "success")
             return redirect('/login_institute')
 
         except Exception as e:
-            print("❌ Firebase Auth Error:", e)
+            print("Registration error (institute):", e)
             flash('Registration failed. ' + str(e), 'danger')
             return redirect('/register_institute')
 
@@ -323,73 +343,89 @@ def register_institute():
 
 
 
+
 @app.route('/login_institute', methods=['GET', 'POST'])
 def login_institute():
     if request.method == 'POST':
         email = request.form['email']
-        pwd = request.form['password']
-        doc = db.collection('users').document(
-            email).get()  # type: ignore[attr-defined]
-        if not doc.exists:
-            return "Invalid credentials or account doesn't exist."
-        user = doc.to_dict()
-        if check_password_hash(user.get('password_hash', ''), pwd):
-            if user.get('approved', 0) == 0:
-                return "Your account is pending approval by the institute admin."
-            if user.get('active', 1) == 0:
-                return "Your account has been deactivated. Please contact your admin."
-            session.update({
-                'user_id': email,
-                'user_name': user.get('name'),
-                'institute': user.get('institute'),
-                'is_admin': user.get('is_admin', 0),
-                'approved': user.get('approved', 0)
-            })
-            log_action(email, 'Login',
-                       f"{user.get('name')} (Admin) logged in.")
-            if user.get('is_admin', 0) == 1:
-                return redirect('/admin_dashboard')
+        password = request.form['password']
+
+        try:
+            # Firebase Auth login
+            payload = {
+                'email': email,
+                'password': password,
+                'returnSecureToken': True
+            }
+            r = requests.post(
+                f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_WEB_API_KEY}',
+                json=payload
+            )
+            data = r.json()
+
+            if 'error' in data:
+                flash("Invalid credentials.", "danger")
+                return redirect('/login_institute')
+
+            # Fetch user role from Firestore
+            user_doc = db.collection('users').document(email).get()
+            if not user_doc.exists:
+                flash('User not found in Firestore.', 'danger')
+                return redirect('/login_institute')
+
+            user_data = user_doc.to_dict()
+            if user_data.get('approved') != 1 or user_data.get('active') != 1:
+                flash('Account not approved or inactive.', 'danger')
+                return redirect('/login_institute')
+
+            session['user_email'] = email
+            session['user_name'] = user_data.get('name')
+            session['role'] = 'institute_admin' if user_data.get('is_admin') == 1 else 'institute_physio'
+            session['institute_email'] = email if user_data.get('is_admin') == 1 else user_data.get('institute_email')
+
             return redirect('/dashboard')
-        return "Invalid credentials or account doesn't exist."
+
+        except Exception as e:
+            print("Login error (institute):", e)
+            flash("Login failed due to a system error.", "danger")
+            return redirect('/login_institute')
+
     return render_template('login_institute.html')
 
-@app.route('/register_with_institute', methods=['GET', 'POST'])
-@csrf.exempt
-def register_with_institute():
-    # Load list of institutes for dropdown
-    institutes = db.collection('users').where('is_admin', '==', 1).stream()
-    institute_emails = [doc.id for doc in institutes]
 
+@app.route('/register_with_institute', methods=['GET', 'POST'])
+def register_with_institute():
     if request.method == 'POST':
         name = request.form['name']
         email = request.form['email']
         password = request.form['password']
-        selected_institute = request.form['institute_email']
+        institute_email = request.form['institute_email']
 
         try:
-            # Create Firebase Auth user
-            user_record = auth.create_user(email=email, password=password, display_name=name)
+            # Create user in Firebase Auth
+            auth.create_user(email=email, password=password, display_name=name)
 
-            # Save metadata to Firestore
+            # Firestore entry (requires admin approval)
             db.collection('users').document(email).set({
                 'name': name,
                 'email': email,
+                'institute_email': institute_email,
                 'is_admin': 0,
-                'approved': 0,  # Needs approval from admin
+                'approved': 0,   # Pending admin approval
                 'active': 1,
-                'created_at': firestore.SERVER_TIMESTAMP,
-                'institute_email': selected_institute
+                'created_at': firestore.SERVER_TIMESTAMP
             })
 
-            flash('Registration submitted. Awaiting approval from your institute.', 'info')
+            flash("Registered with institute. Awaiting admin approval.", "info")
             return redirect('/login_institute')
 
         except Exception as e:
-            print("❌ Firebase Auth Error:", e)
+            print("Registration error (with institute):", e)
             flash('Registration failed. ' + str(e), 'danger')
             return redirect('/register_with_institute')
 
-    return render_template('register_with_institute.html', institute_emails=institute_emails)
+    return render_template('register_with_institute.html')
+
 
     
 

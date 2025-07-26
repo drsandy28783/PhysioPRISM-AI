@@ -218,10 +218,13 @@ def login():
             else:
                 flash('Your account is not approved or is inactive.', 'danger')
                 return redirect('/login')
+            
 
         except Exception as e:
             print("Login error:", e)
             flash("Login failed due to a system error.", "danger")
+            result = r.json()
+            print("FIREBASE LOGIN RESULT:", result)  # 👈 Add this for debugging
             return redirect('/login')
 
     return render_template('login.html')

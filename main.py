@@ -353,11 +353,11 @@ def register_institute():
 @app.route('/login_institute', methods=['GET', 'POST'])
 def login_institute():
     if request.method == 'POST':
-        email = request.form['email']
+        email = request.form['email'].strip().lower()
         password = request.form['password']
 
         try:
-            # Firebase Auth login
+            # Firebase Auth
             payload = {
                 'email': email,
                 'password': password,
@@ -367,57 +367,70 @@ def login_institute():
                 f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_WEB_API_KEY}',
                 json=payload
             )
-            data = r.json()
+            result = r.json()
 
-            if 'error' in data:
+            if 'error' in result:
                 flash("Invalid credentials.", "danger")
                 return redirect('/login_institute')
 
-            # Fetch user role from Firestore
+            # Firestore user check
             user_doc = db.collection('users').document(email).get()
             if not user_doc.exists:
                 flash('User not found in Firestore.', 'danger')
                 return redirect('/login_institute')
 
             user_data = user_doc.to_dict()
+
             if user_data.get('approved') != 1 or user_data.get('active') != 1:
                 flash('Account not approved or inactive.', 'danger')
                 return redirect('/login_institute')
 
+            # Set common session variables
             session['user_email'] = email
             session['user_name'] = user_data.get('name')
-            session['role'] = 'institute_admin' if user_data.get('is_admin') == 1 else 'institute_physio'
-            session['institute_email'] = email if user_data.get('is_admin') == 1 else user_data.get('institute_email')
+            session['user_id'] = email
+            session['is_admin'] = user_data.get('is_admin', 0)
 
-            return redirect('/dashboard')
+            if session['is_admin'] == 1:
+                # Institute admin
+                session['role'] = 'institute_admin'
+                session['institute'] = user_data.get('institute_name') or user_data.get('email')
+                return redirect('/admin_dashboard')
+            else:
+                # Institute physio
+                session['role'] = 'institute_physio'
+                session['institute'] = user_data.get('institute_email')
+                return redirect('/dashboard')
 
         except Exception as e:
             print("Login error (institute):", e)
             flash("Login failed due to a system error.", "danger")
+            print("FIREBASE LOGIN RESULT:", r.json())
             return redirect('/login_institute')
 
     return render_template('login_institute.html')
+
 
 
 @app.route('/register_with_institute', methods=['GET', 'POST'])
 def register_with_institute():
     if request.method == 'POST':
         name = request.form['name']
-        email = request.form['email']
+        email = request.form['email'].strip().lower()  # Normalize email
         password = request.form['password']
-        institute_email = request.form['institute_email']
+        institute_email = request.form['institute_email'].strip().lower()  # Normalize this too
 
         try:
-            # Create user in Firebase Auth
+            # Create Firebase user
             auth.create_user(email=email, password=password, display_name=name)
 
-            # Firestore entry (requires admin approval)
+            # Save to Firestore
             db.collection('users').document(email).set({
                 'name': name,
                 'email': email,
                 'institute_email': institute_email,
                 'is_admin': 0,
-                'approved': 0,   # Pending admin approval
+                'approved': 0,   # Pending approval
                 'active': 1,
                 'created_at': firestore.SERVER_TIMESTAMP
             })
@@ -431,6 +444,7 @@ def register_with_institute():
             return redirect('/register_with_institute')
 
     return render_template('register_with_institute.html')
+
 
 
     

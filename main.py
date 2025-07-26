@@ -480,6 +480,22 @@ def approve_physios():
 
     return render_template('approve_physios.html', physios=pending)
 
+@app.route('/reject_user/<user_email>', methods=['POST'])
+@login_required()
+def reject_user(user_email):
+    try:
+        # Deactivate and unapprove the user
+        db.collection('users').document(user_email).update({
+            'active': 0,
+            'approved': 0
+        })
+        flash(f"{user_email} has been rejected and deactivated.", "info")
+    except Exception as e:
+        print("Error rejecting user:", e)
+        flash("Failed to reject user.", "danger")
+    return redirect(url_for('approve_physios'))
+
+
 
 @app.route('/approve_user/<user_email>', methods=['POST'])
 @login_required()

@@ -183,11 +183,11 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form['email']
+        email = request.form['email'].strip().lower()  # Normalize email
         password = request.form['password']
 
         try:
-            # 1. Authenticate with Firebase Auth via REST API
+            # Firebase Auth login
             payload = {
                 'email': email,
                 'password': password,
@@ -203,31 +203,34 @@ def login():
                 flash('Invalid credentials', 'danger')
                 return redirect('/login')
 
-            # 2. Fetch user data from Firestore
+            # Firestore user check
             user_doc = db.collection('users').document(email).get()
             if not user_doc.exists:
                 flash('User not found in Firestore.', 'danger')
                 return redirect('/login')
 
             user_data = user_doc.to_dict()
+
+            # Approved & Active check
             if user_data.get('approved') == 1 and user_data.get('active') == 1:
                 session['user_email'] = email
                 session['user_name'] = user_data['name']
+                session['user_id'] = email  # Needed for permission filtering
+                session['is_admin'] = 0     # Individual users are not admins
                 session['role'] = 'individual'
                 return redirect('/dashboard')
             else:
                 flash('Your account is not approved or is inactive.', 'danger')
                 return redirect('/login')
-            
 
         except Exception as e:
             print("Login error:", e)
             flash("Login failed due to a system error.", "danger")
-            result = r.json()
-            print("FIREBASE LOGIN RESULT:", result)  # 👈 Add this for debugging
+            print("FIREBASE LOGIN RESULT:", r.json())  # for debug
             return redirect('/login')
 
     return render_template('login.html')
+
 
 
 @app.route('/logout')

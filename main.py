@@ -183,11 +183,11 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email = request.form['email'].strip().lower()  # Normalize email
+        email = request.form['email'].strip().lower()
         password = request.form['password']
 
         try:
-            # Firebase Auth login
+            # Firebase login
             payload = {
                 'email': email,
                 'password': password,
@@ -198,7 +198,6 @@ def login():
                 json=payload
             )
             result = r.json()
-
             if 'error' in result:
                 flash('Invalid credentials', 'danger')
                 return redirect('/login')
@@ -208,28 +207,28 @@ def login():
             if not user_doc.exists:
                 flash('User not found in Firestore.', 'danger')
                 return redirect('/login')
-
             user_data = user_doc.to_dict()
 
-            # Approved & Active check
-            if user_data.get('approved') == 1 and user_data.get('active') == 1:
-                session['user_email'] = email
-                session['user_name'] = user_data['name']
-                session['user_id'] = email  # Needed for permission filtering
-                session['is_admin'] = 0     # Individual users are not admins
-                session['role'] = 'individual'
-                return redirect('/dashboard')
-            else:
-                flash('Your account is not approved or is inactive.', 'danger')
+            # No approval required now
+            if user_data.get('active') != 1:
+                flash('Account is inactive.', 'danger')
                 return redirect('/login')
 
+            session['user_email'] = email
+            session['user_name'] = user_data['name']
+            session['user_id'] = email
+            session['is_admin'] = 0
+            session['role'] = 'individual'
+            return redirect('/dashboard')
+
         except Exception as e:
-            print("Login error:", e)
+            print("Login error (individual):", e)
             flash("Login failed due to a system error.", "danger")
-            print("FIREBASE LOGIN RESULT:", r.json())  # for debug
             return redirect('/login')
 
     return render_template('login.html')
+
+
 
 
 
@@ -357,7 +356,6 @@ def login_institute():
         password = request.form['password']
 
         try:
-            # Firebase Auth
             payload = {
                 'email': email,
                 'password': password,
@@ -368,12 +366,10 @@ def login_institute():
                 json=payload
             )
             result = r.json()
-
             if 'error' in result:
                 flash("Invalid credentials.", "danger")
                 return redirect('/login_institute')
 
-            # Firestore user check
             user_doc = db.collection('users').document(email).get()
             if not user_doc.exists:
                 flash('User not found in Firestore.', 'danger')
@@ -381,23 +377,21 @@ def login_institute():
 
             user_data = user_doc.to_dict()
 
-            if user_data.get('approved') != 1 or user_data.get('active') != 1:
-                flash('Account not approved or inactive.', 'danger')
+            # Skip approval logic for now
+            if user_data.get('active') != 1:
+                flash('Account is inactive.', 'danger')
                 return redirect('/login_institute')
 
-            # Set common session variables
             session['user_email'] = email
             session['user_name'] = user_data.get('name')
             session['user_id'] = email
             session['is_admin'] = user_data.get('is_admin', 0)
 
             if session['is_admin'] == 1:
-                # Institute admin
                 session['role'] = 'institute_admin'
-                session['institute'] = user_data.get('institute_name') or user_data.get('email')
+                session['institute'] = user_data.get('institute_name') or email
                 return redirect('/admin_dashboard')
             else:
-                # Institute physio
                 session['role'] = 'institute_physio'
                 session['institute'] = user_data.get('institute_email')
                 return redirect('/dashboard')
@@ -405,7 +399,6 @@ def login_institute():
         except Exception as e:
             print("Login error (institute):", e)
             flash("Login failed due to a system error.", "danger")
-            print("FIREBASE LOGIN RESULT:", r.json())
             return redirect('/login_institute')
 
     return render_template('login_institute.html')

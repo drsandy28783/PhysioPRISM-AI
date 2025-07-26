@@ -416,11 +416,23 @@ def login_institute():
 def register_with_institute():
     if request.method == 'POST':
         name = request.form['name']
-        email = request.form['email'].strip().lower()  # Normalize email
+        email = request.form['email'].strip().lower()
         password = request.form['password']
-        institute_email = request.form['institute_email'].strip().lower()  # Normalize this too
+        institute_name_input = request.form['institute_email'].strip()  # This is actually the name
 
         try:
+            # Step 2: Look up the email of the selected institute admin
+            institute_admin = db.collection('users')\
+                .where('is_admin', '==', 1)\
+                .where('institute_name', '==', institute_name_input)\
+                .limit(1).get()
+
+            if not institute_admin:
+                flash("No matching institute found. Please select a valid institute.", "danger")
+                return redirect('/register_with_institute')
+
+            institute_email = institute_admin[0].to_dict()['email']
+
             # Create Firebase user
             auth.create_user(email=email, password=password, display_name=name)
 
@@ -430,7 +442,7 @@ def register_with_institute():
                 'email': email,
                 'institute_email': institute_email,
                 'is_admin': 0,
-                'approved': 0,   # Pending approval
+                'approved': 0,
                 'active': 1,
                 'created_at': firestore.SERVER_TIMESTAMP
             })

@@ -29,11 +29,11 @@
       <input class="input-field" type="password" name="password" placeholder="Password" required>
 
       <label for="institute">Institute</label>
-      <input list="institute-list" name="institute" id="institute" class="input-field" placeholder="Select or type institute" required>
+      <input list="institute-list" name="institute_email" id="institute" class="input-field" placeholder="Select or type institute" required>
       <datalist id="institute-list">
-        {% for inst in institutes %}
-          <option value="{{ inst.institute }}">
-        {% endfor %}
+      {% for inst in institutes %}
+      <option value="{{ inst.institute_name }}">
+      {% endfor %}
       </datalist>
 
       <button type="submit" class="button">Register with Institute</button>

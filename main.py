@@ -441,6 +441,7 @@ def register_with_institute():
                 'name': name,
                 'email': email,
                 'institute_email': institute_email,
+                'institute': institute_name_input,  # Add this line
                 'is_admin': 0,
                 'approved': 0,
                 'active': 1,
@@ -456,9 +457,6 @@ def register_with_institute():
             return redirect('/register_with_institute')
 
     return render_template('register_with_institute.html')
-
-
-
     
 
 @app.route('/approve_physios')

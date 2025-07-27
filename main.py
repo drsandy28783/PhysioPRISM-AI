@@ -48,7 +48,7 @@ def get_ai_suggestion(prompt: str) -> str:
         """
     # Using the v1+ client syntax
     resp = openai.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4-turbo",
         messages=[{
             "role": "system",
             "content": "You are a helpful clinical reasoning assistant."

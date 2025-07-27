@@ -250,7 +250,6 @@ if (document.getElementById('perspectives-form')) {
     });
   }
 
-}
 // ——— AI on Pathophysiological Mechanism screen ———
 if (document.querySelector('select#possible_source')) {
   // load up all prior data
@@ -264,7 +263,7 @@ if (document.querySelector('select#possible_source')) {
     past_history:    prevAdd.past_history||'',
     subjective:      prevSubj,
     perspectives:    prevPersp,
-    assessments     // your key under which you stored the initial plan choices
+    assessments:    assessments   // your key under which you stored the initial plan choices
   };
 
   document.querySelectorAll('.ai-btn').forEach(btn => {
